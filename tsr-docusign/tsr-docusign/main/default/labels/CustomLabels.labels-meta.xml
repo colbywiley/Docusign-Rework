@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomLabels xmlns="http://soap.sforce.com/2006/04/metadata">
+    <labels>
+        <fullName>Cannot_Get_Base_URI</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Cannot Get Base URI</shortDescription>
+        <value>Cannot get baseUri, please ensure your Account Id setting is correct</value>
+    </labels>
+    <labels>
+        <fullName>Consent_Required</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Consent Require</shortDescription>
+        <value>Please request application consent first</value>
+    </labels>
+    <labels>
+        <fullName>Deserialize_JSON_Error</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Deserialize JSON Error</shortDescription>
+        <value>Cannot deserialize JSON string</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Build_JWS_Failure</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign Build JWS Failure</shortDescription>
+        <value>Cannot build JWS using JWT and certificate label</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Completion</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign Completion</shortDescription>
+        <value>A completed copy of contract has been attached to the record.</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Email_Resent</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign Email Resent</shortDescription>
+        <value>Email has been successfully re-sent. Please check your email.</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Email_Sent</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign Email Sent</shortDescription>
+        <value>Email has been successfully sent. Please check your email.</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Email_Subject</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Docusign Email Subject</shortDescription>
+        <value>Waiver to be signed.</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_IFrame_Header</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign IFrame Header</shortDescription>
+        <value>Docusign Viewer</value>
+    </labels>
+    <labels>
+        <fullName>Docusign_Setting_Error</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Docusign Setting Error</shortDescription>
+        <value>Fields are missing in Docusign Settings</value>
+    </labels>
+    <labels>
+        <fullName>Invalid_Grant</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Invalid Grant</shortDescription>
+        <value>No valid key or signature, please check the related settings</value>
+    </labels>
+    <labels>
+        <fullName>Missing_Access_Token</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Missing Access Token</shortDescription>
+        <value>Missing access token</value>
+    </labels>
+    <labels>
+        <fullName>Unknown_Error</fullName>
+        <categories>Docusign</categories>
+        <language>en_US</language>
+        <protected>true</protected>
+        <shortDescription>Unknown Error</shortDescription>
+        <value>Unknown error</value>
+    </labels>
+</CustomLabels>

@@ -1,0 +1,11 @@
+{
+"recipientUpdateResults": [
+{
+"recipientId": "1",
+"errorDetails": {
+"errorCodes": "SUCCESS",
+"message": ""
+}
+}
+]
+}

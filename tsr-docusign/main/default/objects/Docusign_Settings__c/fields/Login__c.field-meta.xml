@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Login__c</fullName>
+    <deprecated>false</deprecated>
+    <description>DEPRECATED - DO NOT USE</description>
+    <inlineHelpText>DEPRECATED - DO NOT USE</inlineHelpText>
+    <label>DEPRECATED - DO NOT USE</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Url</type>
+</CustomField>

@@ -1,0 +1,11 @@
+<template>
+    <template if:true={showSpinner} class="slds-is-relative">
+        <div>
+            <lightning-spinner alternative-text="Loading" size="medium" variant="brand"></lightning-spinner>
+        </div>
+    </template>
+
+    <div class="slds-grid slds-p-around_small slds-theme_shade">
+        <lightning-button label="Get Contract" title="Get Contract" onclick={handleGetContract}></lightning-button>
+    </div>
+</template>

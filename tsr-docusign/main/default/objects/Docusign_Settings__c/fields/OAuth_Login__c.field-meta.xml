@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>OAuth_Login__c</fullName>
+    <deprecated>false</deprecated>
+    <description>OAuth login url for docusign.</description>
+    <inlineHelpText>OAuth login url for docusign.</inlineHelpText>
+    <label>OAuth Login</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Url</type>
+</CustomField>

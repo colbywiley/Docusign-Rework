@@ -1,0 +1,9 @@
+{
+    "sub": "564f7988-xxxx-xxxx-xxxx-781ee556ab7a",
+    "name": "Example J Smith",
+    "given_name": "Example",
+    "family_name": "Smith",
+    "created": "2018-04-13T22:03:03.45",
+    "email": "Example.Smith@exampledomain.com",
+    "accounts": []
+}
