@@ -1,36 +1,83 @@
 /**
- * DocusignHandlerCtlr (Smartwaiver Edition)
- * Fully replaces DocuSign behavior with Smartwaiver while keeping method signatures identical.
- * - Email flow: creates a Smartwaiver URL and emails it to the signer; marks record Sent/Via Email.
- * - In-person flow: returns a Smartwaiver URL to open; marks record Sent/In Person.
- * - Manual PDF fetch: pulls waiver PDF by waiverId (stored post-webhook) and attaches as ContentVersion.
+ * DocusignHandlerCtlr
+ * Unified controller:
+ *  - If template.Waiver_Provider__c = 'DocuSign' (or blank), use original DocuSign behavior
+ *  - If template.Waiver_Provider__c = 'Smartwaiver', use Smartwaiver behavior
  *
- * Requirements:
- * - Named Credential: Smartwaiver_Named_Credential (points to https://api.smartwaiver.com/v4 and sends the API key)
- * - Templates: store Smartwaiver Template GUID in TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id__c
- * - Webhook: SW_WebhookService + SmartwaiverEventTrigger + SW_WebhookProcessor handle completion -> attach PDF & mark Complete
+ * Includes Smartwaiver "finalize" endpoint used by the redirect page (DocusignHandler.app?flowType=Finish&event=signing_complete&waiverId=...)
+ * and resilient PDF fetch classification so the UI can poll on NOT_READY / TRANSIENT_RETRY.
  */
 public without sharing class DocusignHandlerCtlr {
+    // --------------------------
+    // Constants
+    // --------------------------
     private static final String PL_CAPTURE_STATUS_IN_PERSON = 'In Person';
     private static final String PL_CAPTURE_STATUS_VIA_EMAIL = 'Via Email';
+    private static final String EMAIL_DOCUMENT              = 'Email';
+    private static final String SIGN_DOCUMENT               = 'Sign';
     private static final String CONTRACT_SENT               = 'Sent';
     private static final String CONTRACT_COMPLETE           = 'Complete';
+    private static final String PROVIDER_SMART              = 'Smartwaiver';
+    private static final String PROVIDER_DOCU               = 'DocuSign';
 
     private static final TREX1__App_Config__c APP_CONFIG = TREX1__App_Config__c.getOrgDefaults();
 
     // --------------------------
-    // Public API (unchanged)
+    // Retry signaling for Smartwaiver
+    // --------------------------
+    public class SmartwaiverRetryException extends Exception {}
+
+    // --------------------------
+    // Public API (unchanged signatures)
     // --------------------------
 
     @AuraEnabled
     public static DocusignResult docusignEmail(String contractAndFormId){
         DocusignResult result = new DocusignResult();
-        try {
+        try{
             ContractData cd = getContractData(contractAndFormId);
-            if (cd == null || cd.template == null) {
-                throw new DocusignException('Template not found for contract.');
+            if (cd == null) throw new DocusignException('Contract not found.');
+
+            Boolean isSmart = (cd.provider != null && cd.provider.equalsIgnoreCase(PROVIDER_SMART));
+            if (!isSmart) {
+                // -------- DocuSign branch (original) --------
+                TREX1__Contract_And_Form__c c = cd.contractAndForm;
+                if (String.isNotBlank(c.TREX1__Capture_Status__c) && String.isNotBlank(c.TREX1__Third_Party_Envelope_Id__c)){
+                    // Already sent once; resend
+                    result = docusignResend(contractAndFormId);
+                    if (result.isSuccess) {
+                        result.result = c.TREX1__Third_Party_Envelope_Id__c;
+                    }
+                    return result;
+                }
+                if (String.isBlank(cd.template.Third_Party_Template_Id__c)) {
+                    throw new DocusignException('Third party template id is blank - check permissions');
+                }
+
+                List<String> templateIds = new List<String>{ cd.template.Third_Party_Template_Id__c };
+                Docusign ds = new Docusign(
+                    contractAndFormId,
+                    c.TREX1__Third_Party_Envelope_Id__c,
+                    EMAIL_DOCUMENT,
+                    templateIds,
+                    cd.currentContact,
+                    buildReturnUrl((Id)contractAndFormId)
+                );
+
+                String envelopeId = ds.createEnvelope();
+                ds.upsertAccessTokenSetting();
+
+                if (String.isBlank(c.TREX1__Third_Party_Envelope_Id__c)){
+                    updateContractAndFormWithEnvelopeId(contractAndFormId, envelopeId, CONTRACT_SENT, PL_CAPTURE_STATUS_VIA_EMAIL);
+                }
+
+                result.isSuccess = true;
+                result.result = envelopeId;
+                return result;
             }
-            if (String.isBlank(cd.template.Third_Party_Template_Id__c)) {
+
+            // -------- Smartwaiver branch --------
+            if (cd.template == null || String.isBlank(cd.template.Third_Party_Template_Id__c)) {
                 throw new DocusignException('Smartwaiver Template GUID is blank - check permissions and template config.');
             }
             if (cd.currentContact == null || String.isBlank(cd.currentContact.Email)) {
@@ -38,11 +85,8 @@ public without sharing class DocusignHandlerCtlr {
             }
 
             String waiverUrl = buildSmartwaiverUrl(cd, (Id)contractAndFormId, false /*kiosk*/);
-
-            // Send the email with the waiver link
             sendWaiverEmail(cd.currentContact, waiverUrl);
 
-            // Mark as Sent (no envelope id yet; webhook will set waiver id later)
             upsert new TREX1__Contract_And_Form__c(
                 Id = (Id)contractAndFormId,
                 TREX1__Status__c = CONTRACT_SENT,
@@ -50,62 +94,165 @@ public without sharing class DocusignHandlerCtlr {
             );
 
             result.isSuccess = true;
-            // Return URL for visibility/logging; UI doesn't need it (email was sent)
-            result.result = waiverUrl;
-        } catch (Exception ex) {
+            result.result = waiverUrl; // informational
+            return result;
+
+        } catch(Exception ex){
             result.isSuccess = false;
             result.errorMessage = ex.getMessage();
+            return result;
         }
-        return result;
+    }
+
+    // Replaces deprecated URL.getSalesforceBaseUrl()
+    // - Internal: returns My Domain (https://<mydomain>.my.salesforce.com)
+    // - Experience Cloud: returns the site URL incl. prefix (https://<domain>/<prefix>)
+    private static String buildReturnUrl(Id contractAndFormId) {
+        ConnectApi.Community community =
+            DocusignCommunityService.isCurrentRequestCommunity()
+            ? DocusignCommunityService.getCurrentRequestCommunity()
+            : null;
+
+        String base;
+        if (community != null && !String.isBlank(community.siteUrl)) {
+            base = community.siteUrl;
+        } else {
+            base = URL.getOrgDomainUrl().toExternalForm();
+        }
+        if (base.endsWith('/')) base = base.left(base.length() - 1);
+        return base + '/c/DocusignHandler.app?recordId=' + contractAndFormId + '&flowType=Finish';
     }
 
     @AuraEnabled
     public static DocusignResult docusignSign(String contractAndFormId){
         DocusignResult result = new DocusignResult();
-        try {
+        try{
             ContractData cd = getContractData(contractAndFormId);
-            if (cd == null || cd.template == null) {
-                throw new DocusignException('Template not found for contract.');
+            if (cd == null) throw new DocusignException('Contract not found.');
+
+            Boolean isSmart = (cd.provider != null && cd.provider.equalsIgnoreCase(PROVIDER_SMART));
+            if (!isSmart) {
+                // -------- DocuSign branch (original) --------
+                if (String.isBlank(cd.template.Third_Party_Template_Id__c)) {
+                    throw new DocusignException('Third party template id is blank - check permissions');
+                }
+                List<String> templateIds = new List<String>{ cd.template.Third_Party_Template_Id__c };
+
+                Docusign ds = new Docusign(
+                    contractAndFormId,
+                    cd.contractAndForm.TREX1__Third_Party_Envelope_Id__c,
+                    SIGN_DOCUMENT,
+                    templateIds,
+                    cd.currentContact,
+                    buildReturnUrl((Id)contractAndFormId)
+                );
+
+                String docusignURL = ds.getPostRecipientView();
+                String envelopeId  = ds.options.envelopeId;
+
+                ds.upsertAccessTokenSetting();
+                if (String.isBlank(cd.contractAndForm.TREX1__Third_Party_Envelope_Id__c)){
+                    updateContractAndFormWithEnvelopeId(contractAndFormId, envelopeId, CONTRACT_SENT, PL_CAPTURE_STATUS_IN_PERSON);
+                }
+                result.isSuccess = true;
+                result.result = docusignURL;
+                return result;
             }
-            if (String.isBlank(cd.template.Third_Party_Template_Id__c)) {
+
+            // -------- Smartwaiver branch --------
+            if (cd.template == null || String.isBlank(cd.template.Third_Party_Template_Id__c)) {
                 throw new DocusignException('Smartwaiver Template GUID is blank - check permissions and template config.');
             }
+            String waiverUrl = buildSmartwaiverUrl(cd, (Id)contractAndFormId, false /*web*/);
 
-            // Build Smartwaiver URL for immediate (in-person/on-screen) signing
-            String waiverUrl = buildSmartwaiverUrl(cd, (Id)contractAndFormId, false /*kiosk or web*/);
-
-            // Mark as Sent (no waiver id yet; webhook will set waiver id + attach PDF)
             upsert new TREX1__Contract_And_Form__c(
                 Id = (Id)contractAndFormId,
                 TREX1__Status__c = CONTRACT_SENT,
                 TREX1__Capture_Status__c = PL_CAPTURE_STATUS_IN_PERSON
             );
 
-            // Return the URL for the UI to open
             result.isSuccess = true;
             result.result = waiverUrl;
-        } catch (Exception ex) {
+            return result;
+
+        } catch(Exception ex){
             result.isSuccess = false;
             result.errorMessage = ex.getMessage();
+            return result;
         }
-        return result;
     }
 
     @AuraEnabled
     public static DocusignResult docusignResend(String contractAndFormId){
-        // Resend is same as sending the email again with the exact same Smartwaiver URL
-        return docusignEmail(contractAndFormId);
+        DocusignResult result = new DocusignResult();
+        try{
+            ContractData cd = getContractData(contractAndFormId);
+            if (cd == null) throw new DocusignException('Contract not found.');
+
+            Boolean isSmart = (cd.provider != null && cd.provider.equalsIgnoreCase(PROVIDER_SMART));
+            if (!isSmart) {
+                // -------- DocuSign branch (original) --------
+                if (String.isBlank(cd.template.Third_Party_Template_Id__c)) {
+                    throw new DocusignException('Third party template id is blank - check permissions');
+                }
+                List<String> templateIds = new List<String>{ cd.template.Third_Party_Template_Id__c };
+
+                Docusign ds = new Docusign(
+                    contractAndFormId,
+                    cd.contractAndForm.TREX1__Third_Party_Envelope_Id__c,
+                    '',
+                    templateIds,
+                    cd.currentContact,
+                    buildReturnUrl((Id)contractAndFormId)
+                );
+
+                ds.resendEnvelope();
+                ds.upsertAccessTokenSetting();
+                result.isSuccess = true;
+                return result;
+            }
+
+            // -------- Smartwaiver branch --------
+            // For Smartwaiver, "resend" = send the email again with the same Smartwaiver link
+            return docusignEmail(contractAndFormId);
+
+        } catch(Exception ex){
+            result.isSuccess = false;
+            result.errorMessage = ex.getMessage();
+            return result;
+        }
     }
 
-    /**
-     * Manual on-demand PDF fetch (fallback). Normally the webhook + processor attach the PDF.
-     * This pulls the waiver PDF by the waiverId (stored in TREX1__Third_Party_Envelope_Id__c post-webhook)
-     * and attaches a ContentVersion to the contract record.
-     */
     @AuraEnabled
     public static DocusignResult docusignPDF(String contractAndFormId){
         DocusignResult result = new DocusignResult();
-        try {
+        try{
+            ContractData cd = getContractData(contractAndFormId);
+            if (cd == null) throw new DocusignException('Contract not found.');
+            Boolean isSmart = (cd.provider != null && cd.provider.equalsIgnoreCase(PROVIDER_SMART));
+
+            if (!isSmart) {
+                // -------- DocuSign branch (original) --------
+                List<String> templateIds = new List<String>();
+                if (cd.template != null && String.isNotBlank(cd.template.Third_Party_Template_Id__c)) {
+                    templateIds.add(cd.template.Third_Party_Template_Id__c);
+                }
+                Docusign ds = new Docusign(
+                    contractAndFormId,
+                    cd.contractAndForm.TREX1__Third_Party_Envelope_Id__c,
+                    '',
+                    templateIds,
+                    cd.currentContact,
+                    buildReturnUrl((Id)contractAndFormId)
+                );
+
+                insert ds.getEnvelopeDocuments();
+                ds.upsertAccessTokenSetting();
+                result.isSuccess = true;
+                return result;
+            }
+
+            // -------- Smartwaiver branch --------
             TREX1__Contract_And_Form__c c = [
                 SELECT Id, Name, TREX1__Third_Party_Envelope_Id__c, TREX1__Status__c, Signed_Contract_Retrieved__c
                 FROM TREX1__Contract_And_Form__c
@@ -116,42 +263,90 @@ public without sharing class DocusignHandlerCtlr {
                 throw new DocusignException('No Smartwaiver Waiver ID found on the contract. Has the webhook processed this waiver yet?');
             }
 
-            // Call Smartwaiver API: GET /waivers/{waiverId}?pdf=true
-            HttpRequest req = new HttpRequest();
-            req.setMethod('GET');
-            req.setEndpoint('callout:Smartwaiver_Named_Credential/waivers/' + c.TREX1__Third_Party_Envelope_Id__c + '?pdf=true');
-            HttpResponse resp = new Http().send(req);
-            if (resp.getStatusCode() != 200) {
-                throw new DocusignException('Smartwaiver PDF fetch failed: ' + resp.getStatus() + ' - ' + resp.getBody());
-            }
-            Map<String,Object> root = (Map<String,Object>)JSON.deserializeUntyped(resp.getBody());
-            Map<String,Object> waiver = (Map<String,Object>)root.get('waiver');
-            if (waiver == null || waiver.get('pdf') == null) {
-                throw new DocusignException('Smartwaiver response missing PDF.');
-            }
-            String pdfB64 = (String)waiver.get('pdf');
-            Blob pdfBlob = EncodingUtil.base64Decode(pdfB64);
-
-            // Save as ContentVersion (File) on the contract
-            ContentVersion cv = new ContentVersion();
-            cv.Title = 'Completed Smartwaiver Waiver';
-            cv.PathOnClient = 'Completed_Smartwaiver_Waiver.pdf';
-            cv.VersionData = pdfBlob;
-            cv.FirstPublishLocationId = c.Id;
-            insert cv;
-
-            // Mark retrieved if not already
-            if (!c.Signed_Contract_Retrieved__c) {
-                c.Signed_Contract_Retrieved__c = true;
-                update c;
-            }
+            // single attempt (manual fetch); errors bubble
+            fetchAndAttachWaiverPdf(c.Id, c.TREX1__Third_Party_Envelope_Id__c);
 
             result.isSuccess = true;
-        } catch (Exception ex) {
+            return result;
+
+        } catch(Exception ex){
             result.isSuccess = false;
             result.errorMessage = ex.getMessage();
+            return result;
         }
-        return result;
+    }
+
+    /**
+     * Smartwaiver finalize entry (called by redirect page).
+     * - Stores waiverId (if provided) onto Third_Party_Envelope_Id__c
+     * - If PDF already retrieved, returns success
+     * - Attempts one fetch; for 404/429/5xx throws SmartwaiverRetryException (UI will poll)
+     */
+    @AuraEnabled
+    public static DocusignResult smartwaiverFinalize(String contractAndFormId, String waiverId){
+        DocusignResult res = new DocusignResult();
+        try {
+            TREX1__Contract_And_Form__c c = [
+                SELECT Id, TREX1__Third_Party_Envelope_Id__c, Signed_Contract_Retrieved__c, TREX1__Template_Id__c
+                FROM TREX1__Contract_And_Form__c
+                WHERE Id = :contractAndFormId
+                LIMIT 1
+            ];
+
+            // Confirm Smartwaiver template (defensive; prevents calling this for DocuSign)
+            TREX1__Contract_Or_Form_Template__c tmpl = c.TREX1__Template_Id__c == null ? null :
+                [SELECT Id, Waiver_Provider__c, Third_Party_Template_Id__c
+                 FROM TREX1__Contract_Or_Form_Template__c
+                 WHERE Id = :c.TREX1__Template_Id__c
+                 LIMIT 1];
+
+            if (tmpl == null || tmpl.Waiver_Provider__c != PROVIDER_SMART) {
+                res.isSuccess = false;
+                res.errorMessage = 'This contract is not configured for Smartwaiver.';
+                return res;
+            }
+
+            // Already done?
+            if (c.Signed_Contract_Retrieved__c) {
+                res.isSuccess = true;
+                return res;
+            }
+
+            // Choose a waiver id to try (use existing on record, else the one from redirect)
+            String candidate = String.isNotBlank(c.TREX1__Third_Party_Envelope_Id__c)
+                ? c.TREX1__Third_Party_Envelope_Id__c
+                : (String.isNotBlank(waiverId) ? waiverId : null);
+
+            if (String.isBlank(candidate)) {
+                // Signal UI to keep polling; Smartwaiver may not have produced an id yet
+                res.isSuccess = false;
+                res.errorMessage = 'NOT_READY: No Smartwaiver found yet for this contract. Please wait a few seconds.';
+                return res;
+            }
+
+            // IMPORTANT: Callout FIRST (no prior DML in this method)
+            fetchAndAttachWaiverPdf(c.Id, candidate);
+
+            // After successful fetch + attach, persist the waiver id if we learned it from the redirect
+            if (String.isBlank(c.TREX1__Third_Party_Envelope_Id__c) && String.isNotBlank(waiverId)) {
+                update new TREX1__Contract_And_Form__c(
+                    Id = c.Id,
+                    TREX1__Third_Party_Envelope_Id__c = waiverId
+                );
+            }
+
+            res.isSuccess = true;
+            return res;
+
+        } catch (SmartwaiverRetryException sre) {
+            res.isSuccess = false;
+            res.errorMessage = String.valueOf(sre.getMessage()); // contains NOT_READY or TRANSIENT_RETRY
+            return res;
+        } catch (Exception e) {
+            res.isSuccess = false;
+            res.errorMessage = e.getMessage();
+            return res;
+        }
     }
 
     @AuraEnabled
@@ -172,21 +367,15 @@ public without sharing class DocusignHandlerCtlr {
     }
 
     // --------------------------
-    // Helpers / Shared logic
+    // Helpers
     // --------------------------
 
-    /**
-     * Builds a Smartwaiver link for the given template, prefilled for the signer (adult) and auto-tagged with the contract Id.
-     * Example:
-     *   https://waiver.smartwaiver.com/w/<GUID>/web/?wautofill_firstname=...&wautofill_lastname=...&wautofill_dobyyyymmdd=YYYYMMDD&wautofill_tag=<ContractId>
-     */
     private static String buildSmartwaiverUrl(ContractData cd, Id contractId, Boolean kioskMode){
         String base = 'https://waiver.smartwaiver.com/w/' + cd.template.Third_Party_Template_Id__c + (kioskMode ? '/kiosk/' : '/web/') + '?';
 
-        // Determine adult/signer contact (already done in getContractData)
         Contact signer = cd.currentContact != null ? cd.currentContact : new Contact();
-
         List<String> params = new List<String>();
+
         if (!String.isBlank(signer.FirstName)) {
             params.add('wautofill_firstname=' + EncodingUtil.urlEncode(signer.FirstName, 'UTF-8'));
         }
@@ -195,22 +384,26 @@ public without sharing class DocusignHandlerCtlr {
         }
         if (signer.Birthdate != null) {
             Date d = signer.Birthdate;
-            String yyyymmdd = String.valueOf(d.year()) +
-                (d.month() < 10 ? '0' + String.valueOf(d.month()) : String.valueOf(d.month())) +
-                (d.day()   < 10 ? '0' + String.valueOf(d.day())   : String.valueOf(d.day()));
+            String yyyymmdd =
+                String.valueOf(d.year()) +
+                (d.month() < 10 ? '0' : '') + String.valueOf(d.month()) +
+                (d.day()   < 10 ? '0' : '') + String.valueOf(d.day());
             params.add('wautofill_dobyyyymmdd=' + yyyymmdd);
         }
+        // NEW: prefill email if available
+        if (!String.isBlank(signer.Email)) {
+            params.add('wautofill_email=' + EncodingUtil.urlEncode(signer.Email, 'UTF-8'));
+        }
 
-        // Auto-tag with the Salesforce Contract Id so webhook can link back
+        // Use Salesforce Contract Id as auto tag so webhook/finalizer can map back
         params.add('wautofill_tag=' + EncodingUtil.urlEncode((String)contractId, 'UTF-8'));
 
-        return base + String.join(params, '&');
+        // Build the URL, then append a redirect back to our handler (works in both internal and Communities)
+        String url = base + String.join(params, '&');
+        url = withSmartwaiverRedirect(url, contractId);
+        return url;
     }
 
-    /**
-     * Sends a plain email containing the Smartwaiver link to the signer.
-     * Customize as desired or switch to Lightning templates.
-     */
     private static void sendWaiverEmail(Contact toContact, String waiverUrl){
         Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
         mail.setToAddresses(new String[]{ toContact.Email });
@@ -223,10 +416,6 @@ public without sharing class DocusignHandlerCtlr {
         Messaging.sendEmail(new Messaging.SingleEmailMessage[]{ mail });
     }
 
-    /**
-     * Retrieves the necessary data (template, currentContact/signer) from the contract.
-     * Logic preserved from the original implementation, minus DocuSign-specific checks.
-     */
     private static ContractData getContractData(Id contractAndFormId){
         if (APP_CONFIG.TREX1__Minimum_Contract_Signing_Age__c == null){
             throw new DocusignException('Minimum signing age has not been set on the app config');
@@ -247,24 +436,22 @@ public without sharing class DocusignHandlerCtlr {
         }
 
         if (currentContract != null && String.isNotBlank(currentContract.TREX1__Template_Id__c)) {
-            if (!TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id__c.getDescribe().isAccessible()) {
-                throw new DocusignException('Cannot read Third_Party_Template_Id__c on TREX1__Contract_Or_Form_Template__c');
+            // Need template provider + third party template id
+            if (!TREX1__Contract_Or_Form_Template__c.Waiver_Provider__c.getDescribe().isAccessible()
+                || !TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id__c.getDescribe().isAccessible()) {
+                throw new DocusignException('Cannot read template fields (Waiver_Provider__c / Third_Party_Template_Id__c). Check field-level security.');
             }
             List<TREX1__Contract_Or_Form_Template__c> templates = [
-                SELECT Id, Third_Party_Template_Id__c
+                SELECT Id, Waiver_Provider__c, Third_Party_Template_Id__c
                 FROM TREX1__Contract_Or_Form_Template__c
                 WHERE Id = :currentContract.TREX1__Template_Id__c
             ];
             if (!templates.isEmpty()) {
                 associatedTemplate = templates[0];
-                if (String.isBlank(associatedTemplate.Third_Party_Template_Id__c)) {
-                    throw new DocusignException('Template has no Third_Party_Template_Id__c (Smartwaiver GUID). Id: ' + associatedTemplate.Id);
-                }
             }
         }
 
         if (currentContract != null){
-            // Mirror original logic: primary contact signs if participant is under minimum age or if flag is set
             Boolean usePrimary = currentContract.TREX1__Primary_Contact_Signature__c
                 || (currentContract.TREX1__Contact__r != null
                     && currentContract.TREX1__Contact__r.TREX1__Age__c < APP_CONFIG.TREX1__Minimum_Contract_Signing_Age__c);
@@ -294,21 +481,121 @@ public without sharing class DocusignHandlerCtlr {
             }
         }
 
-        return new ContractData(currentContract, associatedTemplate, currentContact);
+        // Default provider to DocuSign if blank (backward compatible)
+        String providerValue = (associatedTemplate != null && !String.isBlank(associatedTemplate.Waiver_Provider__c))
+            ? associatedTemplate.Waiver_Provider__c
+            : PROVIDER_DOCU;
+
+        return new ContractData(currentContract, associatedTemplate, currentContact, providerValue);
+    }
+
+    private static void updateContractAndFormWithEnvelopeId(Id contractAndFormId, String envelopeId, String status, String captureStatus){
+        upsert new TREX1__Contract_And_Form__c(
+            Id = contractAndFormId,
+            TREX1__Third_Party_Envelope_Id__c = envelopeId,
+            TREX1__Status__c = status,
+            TREX1__Capture_Status__c = captureStatus
+        );
+    }
+
+    // Fetch once; classify retryable conditions for the UI
+    private static void fetchAndAttachWaiverPdf(Id contractId, String waiverId) {
+        HttpRequest req = new HttpRequest();
+        req.setMethod('GET');
+        req.setEndpoint('callout:Smartwaiver_Named_Credential/waivers/' +
+                        EncodingUtil.urlEncode(waiverId, 'UTF-8') +
+                        '?pdf=true');
+
+        HttpResponse resp = new Http().send(req);
+        Integer sc = resp.getStatusCode();
+
+        if (sc == 200) {
+            Map<String,Object> root   = (Map<String,Object>)JSON.deserializeUntyped(resp.getBody());
+            Map<String,Object> waiver = (Map<String,Object>)root.get('waiver');
+            if (waiver == null || waiver.get('pdf') == null) {
+                throw new DocusignException('Smartwaiver response missing PDF.');
+            }
+            Blob pdfBlob = EncodingUtil.base64Decode((String)waiver.get('pdf'));
+
+            ContentVersion cv = new ContentVersion();
+            cv.Title = 'Completed Smartwaiver Waiver';
+            cv.PathOnClient = 'Completed_Smartwaiver_Waiver.pdf';
+            cv.VersionData = pdfBlob;
+            cv.FirstPublishLocationId = contractId;
+            insert cv;
+
+            update new TREX1__Contract_And_Form__c(
+                Id = contractId,
+                Signed_Contract_Retrieved__c = true
+            );
+            return;
+        }
+
+        String statusLine = resp.getStatus();
+        String body       = resp.getBody();
+
+        // 404 = not yet queryable by ID -> retry
+        if (sc == 404) {
+            throw new SmartwaiverRetryException('NOT_READY: ' + statusLine + ' - ' + body);
+        }
+        // Transient conditions -> retry
+        if (sc == 429 || sc == 500 || sc == 502 || sc == 503 || sc == 504) {
+            throw new SmartwaiverRetryException('TRANSIENT_RETRY: ' + statusLine + ' - ' + body);
+        }
+
+        // Anything else = hard failure
+        throw new DocusignException('Smartwaiver PDF fetch failed: ' + statusLine + ' - ' + body);
+    }
+
+    /** Returns https://<current-host>[/sfsites]/c/DocusignHandler.app?... */
+    private static String buildFinishUrl(Id contractId) {
+        Url req = URL.getCurrentRequestUrl();                   // current request host (org or community)
+        String base = req.getProtocol() + '://' + req.getHost();
+        // Robust community detection
+        Boolean isCommunity = (Network.getNetworkId() != null);
+        String lightningPrefix = (isCommunity ? '/sfsites' : '') + '/c';
+
+        String qs = 'flowType=Finish'
+                  + '&event=signing_complete'
+                  + '&recordId=' + EncodingUtil.urlEncode(String.valueOf(contractId), 'UTF-8');
+
+        return base + lightningPrefix + '/DocusignHandler.app?' + qs;
+    }
+
+    /** Adds/overwrites Smartwaiver redirect parameter */
+    private static String withSmartwaiverRedirect(String smartwaiverUrl, Id contractId) {
+        String finishUrl = buildFinishUrl(contractId);
+        String enc = EncodingUtil.urlEncode(finishUrl, 'UTF-8');
+        // Remove any existing redirect= to avoid duplicates
+        if (smartwaiverUrl.contains('redirect=')) {
+            // crude but safe enough for this case
+            smartwaiverUrl = smartwaiverUrl.replaceAll('([?&])redirect=[^&]*', '$1');
+            // strip trailing & or ? if we ended up with them
+            if (smartwaiverUrl.endsWith('&') || smartwaiverUrl.endsWith('?')) {
+                smartwaiverUrl = smartwaiverUrl.substring(0, smartwaiverUrl.length()-1);
+            }
+        }
+        String glue = smartwaiverUrl.contains('?') ? '&' : '?';
+        return smartwaiverUrl + glue + 'redirect=' + enc;
     }
 
     // --------------------------
-    // Inner classes (unchanged signatures)
+    // Inner classes (unchanged shapes)
     // --------------------------
 
     public class ContractData{
         public TREX1__Contract_And_Form__c contractAndForm {get; set;}
         public TREX1__Contract_Or_Form_Template__c template {get; set;}
         public Contact currentContact {get; set;}
-        public ContractData(TREX1__Contract_And_Form__c contractAndForm, TREX1__Contract_Or_Form_Template__c template, Contact currentContact){
+        public String provider {get; set;}
+        public ContractData(TREX1__Contract_And_Form__c contractAndForm,
+                            TREX1__Contract_Or_Form_Template__c template,
+                            Contact currentContact,
+                            String provider){
             this.contractAndForm = contractAndForm;
             this.template = template;
             this.currentContact = currentContact;
+            this.provider = provider;
         }
     }
 
