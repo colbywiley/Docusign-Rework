@@ -26,12 +26,11 @@
         } else if (flowType === 'Resend') {
             helper.resendDocusign(component);
         } else if (flowType === 'Finish') {
+            // Single-shot Smartwaiver finalize (no polling)
             if (component.get('v.event') === 'signing_complete') {
-                // Smartwaiver path: poll finalize until success or hard error
                 helper.showSpinner(component, true);
-                component.set('v.statusMessage', 'Finalizing waiver…');
-                component.set('v.retryCount', 0);
-                helper.pollSmartwaiverFinalize(component, helper);
+                component.set('v.statusMessage', 'Recording your waiver…');
+                helper.finalizeSmartwaiverOnce(component, helper);
             }
         }
     },

@@ -1,15 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <actionCalls>
-        <name>Attach_PDF_to_Record</name>
-        <label>Attach PDF to Record</label>
-        <locationX>402</locationX>
-        <locationY>1034</locationY>
+        <name>Attach_Pdf_to_Contract_and_Form</name>
+        <label>Attach Pdf to Contract and Form</label>
+        <locationX>50</locationX>
+        <locationY>602</locationY>
         <actionName>FlowFileHelper</actionName>
         <actionType>apex</actionType>
         <connector>
-            <targetReference>Update_Smartwaiver_Event_to_Parsed</targetReference>
+            <targetReference>Update_Contract_and_Form</targetReference>
         </connector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>base64Data</name>
+            <value>
+                <elementReference>Get_Waiver_Details.pdfValue</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>fileName</name>
+            <value>
+                <stringValue>Liability Waiver.pdf</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>parentRecordId</name>
+            <value>
+                <elementReference>Get_Waiver_Details.autoTagValue</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>smartwaiverEventId</name>
+            <value>
+                <elementReference>$Record.RecordId__c</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>FlowFileHelper</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Attach_PDF_to_Record</name>
+        <label>Attach PDF to Record</label>
+        <locationX>2998</locationX>
+        <locationY>1034</locationY>
+        <actionName>FlowFileHelper</actionName>
+        <actionType>apex</actionType>
         <flowTransactionModel>CurrentTransaction</flowTransactionModel>
         <inputParameters>
             <name>base64Data</name>
@@ -29,14 +65,21 @@
                 <elementReference>Create_Contract_and_Form</elementReference>
             </value>
         </inputParameters>
+        <inputParameters>
+            <name>smartwaiverEventId</name>
+            <value>
+                <elementReference>$Record.RecordId__c</elementReference>
+            </value>
+        </inputParameters>
         <nameSegment>FlowFileHelper</nameSegment>
         <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <actionCalls>
         <name>Generate_PDF_Attachment</name>
         <label>Generate PDF Attachment</label>
-        <locationX>138</locationX>
-        <locationY>3074</locationY>
+        <locationX>1414</locationX>
+        <locationY>3206</locationY>
         <actionName>FlowFileHelper</actionName>
         <actionType>apex</actionType>
         <connector>
@@ -61,13 +104,41 @@
                 <elementReference>Loop_Through_Attendee_Records.Id</elementReference>
             </value>
         </inputParameters>
+        <inputParameters>
+            <name>smartwaiverEventId</name>
+            <value>
+                <elementReference>$Record.RecordId__c</elementReference>
+            </value>
+        </inputParameters>
         <nameSegment>FlowFileHelper</nameSegment>
         <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
+        <name>Get_Object_Name</name>
+        <label>Get Object Name</label>
+        <locationX>2272</locationX>
+        <locationY>386</locationY>
+        <actionName>SchemaGlobalDescribe</actionName>
+        <actionType>apex</actionType>
+        <connector>
+            <targetReference>Object_Type</targetReference>
+        </connector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>recordIdOrPrefix</name>
+            <value>
+                <elementReference>Get_Waiver_Details.autoTagValue</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>SchemaGlobalDescribe</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
     </actionCalls>
     <actionCalls>
         <name>Get_Waiver_Details</name>
         <label>Get Waiver Details</label>
-        <locationX>611</locationX>
+        <locationX>3515</locationX>
         <locationY>170</locationY>
         <actionName>SW_SmartwaiverFlowAction</actionName>
         <actionType>apex</actionType>
@@ -96,8 +167,8 @@
     <assignments>
         <name>Add_Adult_to_Collection_of_Contacts_to_Add_ts_Attendees</name>
         <label>Add Adult to Collection of Contacts to Add ts Attendees</label>
-        <locationX>138</locationX>
-        <locationY>1442</locationY>
+        <locationX>1414</locationX>
+        <locationY>1574</locationY>
         <assignmentItems>
             <assignToReference>ContactsToAddAsAttendeesCollectionVar</assignToReference>
             <operator>Add</operator>
@@ -112,8 +183,8 @@
     <assignments>
         <name>Add_Created_Contacts_to_Collection</name>
         <label>Add Created Contacts to Collection</label>
-        <locationX>50</locationX>
-        <locationY>2342</locationY>
+        <locationX>1326</locationX>
+        <locationY>2474</locationY>
         <assignmentItems>
             <assignToReference>ContactsToAddAsAttendeesCollectionVar</assignToReference>
             <operator>Add</operator>
@@ -128,8 +199,8 @@
     <assignments>
         <name>Add_Single_Attendee_to_Create_Collection</name>
         <label>Add Single Attendee to Create Collection</label>
-        <locationX>138</locationX>
-        <locationY>2666</locationY>
+        <locationX>1414</locationX>
+        <locationY>2798</locationY>
         <assignmentItems>
             <assignToReference>AttendeeRecordsToCreateCollectionVar</assignToReference>
             <operator>Add</operator>
@@ -144,8 +215,8 @@
     <assignments>
         <name>Add_to_Collection_of_Contacts_to_Create</name>
         <label>Add to Collection of Contacts to Create</label>
-        <locationX>666</locationX>
-        <locationY>1766</locationY>
+        <locationX>1942</locationX>
+        <locationY>1898</locationY>
         <assignmentItems>
             <assignToReference>ContactRecordsToCreateCollectionVar</assignToReference>
             <operator>Add</operator>
@@ -160,7 +231,7 @@
     <assignments>
         <name>Assign_Adult_Contact_to_Primary_Contact_Variable</name>
         <label>Assign Adult Contact to Primary Contact Variable</label>
-        <locationX>50</locationX>
+        <locationX>1326</locationX>
         <locationY>710</locationY>
         <assignmentItems>
             <assignToReference>PrimaryAdultContactRecordVar</assignToReference>
@@ -176,8 +247,8 @@
     <assignments>
         <name>Assign_Attendee_Values</name>
         <label>Assign Attendee Values</label>
-        <locationX>138</locationX>
-        <locationY>2558</locationY>
+        <locationX>1414</locationX>
+        <locationY>2690</locationY>
         <assignmentItems>
             <assignToReference>SingleAttendeeRecordVar.Contact__c</assignToReference>
             <operator>Assign</operator>
@@ -199,8 +270,8 @@
     <assignments>
         <name>Assign_Id_and_Account_to_Current_Contact</name>
         <label>Assign Id and Account to Waiver Contact</label>
-        <locationX>402</locationX>
-        <locationY>1658</locationY>
+        <locationX>1678</locationX>
+        <locationY>1790</locationY>
         <assignmentItems>
             <assignToReference>Loop_Through_Participants.Id</assignToReference>
             <operator>Assign</operator>
@@ -222,8 +293,8 @@
     <assignments>
         <name>Clear_Current_Contact_Record_Variable</name>
         <label>Clear Current Contact Record Variable</label>
-        <locationX>534</locationX>
-        <locationY>1958</locationY>
+        <locationX>1810</locationX>
+        <locationY>2090</locationY>
         <assignmentItems>
             <assignToReference>CurrentContactRecordVar.Id</assignToReference>
             <operator>Assign</operator>
@@ -245,8 +316,8 @@
     <assignments>
         <name>Copy_2_of_Add_Adult_to_Collection_of_Contacts_to_Add_ts_Attendees</name>
         <label>Add to Collection of Contacts to Add ts Attendees</label>
-        <locationX>402</locationX>
-        <locationY>1766</locationY>
+        <locationX>1678</locationX>
+        <locationY>1898</locationY>
         <assignmentItems>
             <assignToReference>ContactsToAddAsAttendeesCollectionVar</assignToReference>
             <operator>Add</operator>
@@ -261,8 +332,8 @@
     <assignments>
         <name>Copy_2_of_Assign_Id_and_Account_to_Waiver_Contact</name>
         <label>Assign Account Id to Waiver Contact</label>
-        <locationX>666</locationX>
-        <locationY>1658</locationY>
+        <locationX>1942</locationX>
+        <locationY>1790</locationY>
         <assignmentItems>
             <assignToReference>Loop_Through_Participants.AccountId</assignToReference>
             <operator>Assign</operator>
@@ -277,8 +348,8 @@
     <decisions>
         <name>Found_Contact</name>
         <label>Found Contact?</label>
-        <locationX>534</locationX>
-        <locationY>1550</locationY>
+        <locationX>1810</locationX>
+        <locationY>1682</locationY>
         <defaultConnector>
             <targetReference>Copy_2_of_Assign_Id_and_Account_to_Waiver_Contact</targetReference>
         </defaultConnector>
@@ -302,7 +373,7 @@
     <decisions>
         <name>Found_Matching_Adult_Contact</name>
         <label>Found Matching Adult Contact</label>
-        <locationX>50</locationX>
+        <locationX>1326</locationX>
         <locationY>818</locationY>
         <defaultConnector>
             <targetReference>Create_New_Adult_Contact</targetReference>
@@ -327,7 +398,7 @@
     <decisions>
         <name>Found_Membership</name>
         <label>Found Membership?</label>
-        <locationX>534</locationX>
+        <locationX>3394</locationX>
         <locationY>818</locationY>
         <defaultConnectorLabel>No</defaultConnectorLabel>
         <rules>
@@ -349,8 +420,11 @@
     <decisions>
         <name>Has_AutoTag</name>
         <label>Has AutoTag?</label>
-        <locationX>611</locationX>
+        <locationX>3515</locationX>
         <locationY>278</locationY>
+        <defaultConnector>
+            <targetReference>Update_Smartwaiver_Event</targetReference>
+        </defaultConnector>
         <defaultConnectorLabel>No</defaultConnectorLabel>
         <rules>
             <name>YesHasAutotag</name>
@@ -362,8 +436,15 @@
                     <booleanValue>false</booleanValue>
                 </rightValue>
             </conditions>
+            <conditions>
+                <leftValueReference>Get_Waiver_Details.autoTagValue</leftValueReference>
+                <operator>NotEqualTo</operator>
+                <rightValue>
+                    <stringValue></stringValue>
+                </rightValue>
+            </conditions>
             <connector>
-                <targetReference>Get_Conference_Reservation</targetReference>
+                <targetReference>Get_Object_Name</targetReference>
             </connector>
             <label>Yes</label>
         </rules>
@@ -371,8 +452,8 @@
     <decisions>
         <name>Is_Adult</name>
         <label>Is Adult?</label>
-        <locationX>336</locationX>
-        <locationY>1334</locationY>
+        <locationX>1612</locationX>
+        <locationY>1466</locationY>
         <defaultConnector>
             <targetReference>Get_Contact_of_Current_Participant</targetReference>
         </defaultConnector>
@@ -394,28 +475,58 @@
         </rules>
     </decisions>
     <decisions>
-        <name>Is_Conference_Waiver</name>
-        <label>Is Conference Waiver?</label>
-        <locationX>292</locationX>
+        <name>Object_Type</name>
+        <label>Object Type</label>
+        <locationX>2272</locationX>
         <locationY>494</locationY>
         <defaultConnector>
-            <targetReference>Get_Associated_Membership</targetReference>
+            <targetReference>Update_SmartWaiver_and_Add_Error</targetReference>
         </defaultConnector>
-        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>
         <rules>
-            <name>YesConference</name>
+            <name>Contract_and_Form</name>
             <conditionLogic>and</conditionLogic>
             <conditions>
-                <leftValueReference>Get_Conference_Reservation.Id</leftValueReference>
-                <operator>IsNull</operator>
+                <leftValueReference>Get_Object_Name.objectApiName</leftValueReference>
+                <operator>EqualTo</operator>
                 <rightValue>
-                    <booleanValue>false</booleanValue>
+                    <stringValue>TREX1__Contract_and_Form__c</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Attach_Pdf_to_Contract_and_Form</targetReference>
+            </connector>
+            <label>Contract and Form</label>
+        </rules>
+        <rules>
+            <name>Conference_Reservation</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Get_Object_Name.objectApiName</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>Conference_Reservation__c</stringValue>
                 </rightValue>
             </conditions>
             <connector>
                 <targetReference>Get_Existing_Adult_Contact_by_DOB_and_Email</targetReference>
             </connector>
-            <label>Yes</label>
+            <label>Conference Reservation</label>
+        </rules>
+        <rules>
+            <name>Membership</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Get_Object_Name.objectApiName</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <stringValue>TREX1__Membership__c</stringValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Get_Associated_Membership</targetReference>
+            </connector>
+            <label>Membership</label>
         </rules>
     </decisions>
     <environments>Default</environments>
@@ -429,22 +540,19 @@
     <loops>
         <name>Loop_Through_Attendee_Records</name>
         <label>Loop Through Attendee Records</label>
-        <locationX>50</locationX>
-        <locationY>2966</locationY>
+        <locationX>1326</locationX>
+        <locationY>3098</locationY>
         <collectionReference>AttendeeRecordsToCreateCollectionVar</collectionReference>
         <iterationOrder>Asc</iterationOrder>
         <nextValueConnector>
             <targetReference>Generate_PDF_Attachment</targetReference>
         </nextValueConnector>
-        <noMoreValuesConnector>
-            <targetReference>Update_Smartwaiver_Event_to_Parsed</targetReference>
-        </noMoreValuesConnector>
     </loops>
     <loops>
         <name>Loop_Through_Attendees_and_Assign_Attendee_Values</name>
         <label>Loop Through Attendees and Assign Attendee Values</label>
-        <locationX>50</locationX>
-        <locationY>2450</locationY>
+        <locationX>1326</locationX>
+        <locationY>2582</locationY>
         <collectionReference>ContactsToAddAsAttendeesCollectionVar</collectionReference>
         <iterationOrder>Asc</iterationOrder>
         <nextValueConnector>
@@ -457,8 +565,8 @@
     <loops>
         <name>Loop_Through_Participants</name>
         <label>Loop Through Participants</label>
-        <locationX>50</locationX>
-        <locationY>1226</locationY>
+        <locationX>1326</locationX>
+        <locationY>1358</locationY>
         <collectionReference>Get_Waiver_Details.participantContactRecordCollectionVar</collectionReference>
         <iterationOrder>Asc</iterationOrder>
         <nextValueConnector>
@@ -490,8 +598,8 @@
     <recordCreates>
         <name>Create_Attendee_Records</name>
         <label>Create Attendee Records</label>
-        <locationX>50</locationX>
-        <locationY>2858</locationY>
+        <locationX>1326</locationX>
+        <locationY>2990</locationY>
         <connector>
             <targetReference>Loop_Through_Attendee_Records</targetReference>
         </connector>
@@ -500,8 +608,8 @@
     <recordCreates>
         <name>Create_Contacts</name>
         <label>Create Contacts</label>
-        <locationX>50</locationX>
-        <locationY>2234</locationY>
+        <locationX>1326</locationX>
+        <locationY>2366</locationY>
         <connector>
             <targetReference>Add_Created_Contacts_to_Collection</targetReference>
         </connector>
@@ -510,7 +618,7 @@
     <recordCreates>
         <name>Create_Contract_and_Form</name>
         <label>Create Contract and Form</label>
-        <locationX>402</locationX>
+        <locationX>2998</locationX>
         <locationY>926</locationY>
         <connector>
             <targetReference>Attach_PDF_to_Record</targetReference>
@@ -575,7 +683,7 @@
     <recordCreates>
         <name>Create_New_Adult_Contact</name>
         <label>Create New Adult Contact</label>
-        <locationX>138</locationX>
+        <locationX>1414</locationX>
         <locationY>926</locationY>
         <connector>
             <targetReference>Get_Newly_Created_Account_from_Contact</targetReference>
@@ -585,7 +693,7 @@
     <recordLookups>
         <name>Get_Associated_Membership</name>
         <label>Get Associated Membership</label>
-        <locationX>534</locationX>
+        <locationX>3394</locationX>
         <locationY>602</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
@@ -604,30 +712,9 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
     <recordLookups>
-        <name>Get_Conference_Reservation</name>
-        <label>Get Conference Reservation</label>
-        <locationX>292</locationX>
-        <locationY>386</locationY>
-        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>Is_Conference_Waiver</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>Id</field>
-            <operator>EqualTo</operator>
-            <value>
-                <elementReference>Get_Waiver_Details.autoTagValue</elementReference>
-            </value>
-        </filters>
-        <getFirstRecordOnly>true</getFirstRecordOnly>
-        <object>Conference_Reservation__c</object>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
-    <recordLookups>
         <name>Get_Contact_Full_Name</name>
         <label>Get Contact Full Name</label>
-        <locationX>534</locationX>
+        <locationX>3394</locationX>
         <locationY>710</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
@@ -650,8 +737,8 @@
     <recordLookups>
         <name>Get_Contact_of_Current_Participant</name>
         <label>Get Contact of Current Participant</label>
-        <locationX>534</locationX>
-        <locationY>1442</locationY>
+        <locationX>1810</locationX>
+        <locationY>1574</locationY>
         <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
         <connector>
             <targetReference>Found_Contact</targetReference>
@@ -693,7 +780,7 @@
     <recordLookups>
         <name>Get_Existing_Adult_Contact_by_DOB_and_Email</name>
         <label>Get Existing Adult Contact by DOB and Email</label>
-        <locationX>50</locationX>
+        <locationX>1326</locationX>
         <locationY>602</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
@@ -749,7 +836,7 @@
     <recordLookups>
         <name>Get_Newly_Created_Account_from_Contact</name>
         <label>Get Newly Created Account from Contact</label>
-        <locationX>138</locationX>
+        <locationX>1414</locationX>
         <locationY>1034</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
@@ -770,10 +857,58 @@
         </outputAssignments>
     </recordLookups>
     <recordUpdates>
-        <name>Update_Smartwaiver_Event_to_Parsed</name>
-        <label>Update Smartwaiver Event to Parsed</label>
-        <locationX>292</locationX>
-        <locationY>3350</locationY>
+        <name>Update_Contract_and_Form</name>
+        <label>Update Contract and Form</label>
+        <locationX>50</locationX>
+        <locationY>710</locationY>
+        <faultConnector>
+            <targetReference>Update_Smartwaiver_Event_with_Fault_Info</targetReference>
+        </faultConnector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Get_Waiver_Details.autoTagValue</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Signed_Contract_Retrieved__c</field>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>TREX1__Date_Signed__c</field>
+            <value>
+                <elementReference>$Flow.CurrentDate</elementReference>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>TREX1__Has_Been_Signed__c</field>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>TREX1__Status__c</field>
+            <value>
+                <stringValue>Complete</stringValue>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>TREX1__Third_Party_Envelope_Id__c</field>
+            <value>
+                <elementReference>$Record.WaiverId__c</elementReference>
+            </value>
+        </inputAssignments>
+        <object>TREX1__Contract_and_Form__c</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Update_SmartWaiver_and_Add_Error</name>
+        <label>Update SmartWaiver and Add Error</label>
+        <locationX>4494</locationX>
+        <locationY>602</locationY>
         <filterLogic>and</filterLogic>
         <filters>
             <field>Id</field>
@@ -783,15 +918,75 @@
             </value>
         </filters>
         <inputAssignments>
+            <field>Error_Reason__c</field>
+            <value>
+                <stringValue>recordId did not match object in Smartwaiver Retreival flow</stringValue>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
             <field>Status__c</field>
             <value>
-                <stringValue>Parsed</stringValue>
+                <stringValue>Error</stringValue>
+            </value>
+        </inputAssignments>
+        <object>Smartwaiver_Event__c</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Update_Smartwaiver_Event</name>
+        <label>Update Smartwaiver Event</label>
+        <locationX>4758</locationX>
+        <locationY>386</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.RecordId__c</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Error_Reason__c</field>
+            <value>
+                <stringValue>Did not retreive valid RecordId</stringValue>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>Status__c</field>
+            <value>
+                <stringValue>Error</stringValue>
+            </value>
+        </inputAssignments>
+        <object>Smartwaiver_Event__c</object>
+    </recordUpdates>
+    <recordUpdates>
+        <name>Update_Smartwaiver_Event_with_Fault_Info</name>
+        <label>Update Smartwaiver Event with Fault Info</label>
+        <locationX>314</locationX>
+        <locationY>818</locationY>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>$Record.RecordId__c</elementReference>
+            </value>
+        </filters>
+        <inputAssignments>
+            <field>Error_Reason__c</field>
+            <value>
+                <elementReference>$Flow.FaultMessage</elementReference>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>Status__c</field>
+            <value>
+                <stringValue>Error</stringValue>
             </value>
         </inputAssignments>
         <object>Smartwaiver_Event__c</object>
     </recordUpdates>
     <start>
-        <locationX>485</locationX>
+        <locationX>3389</locationX>
         <locationY>0</locationY>
         <connector>
             <targetReference>Get_Waiver_Details</targetReference>
@@ -800,7 +995,7 @@
         <object>Smartwaiver_Sync__e</object>
         <triggerType>PlatformEvent</triggerType>
     </start>
-    <status>Active</status>
+    <status>Draft</status>
     <variables>
         <name>AttendeeRecordsToCreateCollectionVar</name>
         <dataType>SObject</dataType>

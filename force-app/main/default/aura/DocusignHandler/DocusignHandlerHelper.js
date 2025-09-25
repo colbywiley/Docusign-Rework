@@ -1,16 +1,20 @@
 ({
-    // --------------------------
-    // DocuSign flows (unchanged)
-    // --------------------------
+    // =========================================================
+    // DocuSign flows (unchanged server behavior)
+    // =========================================================
     signDocusign : function(component) {
         var recordId = component.get('v.recordId');
         var action = component.get('c.docusignSign');
         action.setParams({ "contractAndFormId" : recordId });
+
+        this.showSpinner(component, true);
         action.setCallback(this, function(response) {
+            this.showSpinner(component, false);
             var result = response.getReturnValue();
             if (result && result.isSuccess){
+                // Redirect to DocuSign recipient view
                 window.location.href = result.result;
-            } else{
+            } else {
                 component.set('v.errorMessage', result ? result.errorMessage : 'Unknown error');
                 component.set('v.docusignError', true);
             }
@@ -22,11 +26,14 @@
         var recordId = component.get('v.recordId');
         var action = component.get('c.docusignEmail');
         action.setParams({ "contractAndFormId" : recordId });
+
+        this.showSpinner(component, true);
         action.setCallback(this, function(response) {
+            this.showSpinner(component, false);
             var result = response.getReturnValue();
             if (result && result.isSuccess){
                 component.set('v.emailSent', true);
-            } else{
+            } else {
                 component.set('v.errorMessage', result ? result.errorMessage : 'Unknown error');
                 component.set('v.docusignError', true);
             }
@@ -38,11 +45,14 @@
         var recordId = component.get('v.recordId');
         var action = component.get('c.docusignResend');
         action.setParams({ "contractAndFormId" : recordId });
+
+        this.showSpinner(component, true);
         action.setCallback(this, function(response) {
+            this.showSpinner(component, false);
             var result = response.getReturnValue();
             if (result && result.isSuccess){
                 component.set('v.emailResent', true);
-            } else{
+            } else {
                 component.set('v.errorMessage', result ? result.errorMessage : 'Unknown error');
                 component.set('v.docusignError', true);
             }
@@ -50,16 +60,27 @@
         $A.enqueueAction(action);
     },
 
+    /**
+     * DocuSign-only “Download PDF” path remains.
+     * On Smartwaiver, the server method is a no-op and returns success with an info message.
+     * We still mark the contract signed afterward (consistent with former behavior).
+     */
     downloadPDF : function(component, helper){
         var recordId = component.get('v.recordId');
         var action = component.get('c.docusignPDF');
         action.setParams({ "contractAndFormId" : recordId });
+
+        this.showSpinner(component, true);
         action.setCallback(this, function(response) {
             var result = response.getReturnValue();
             if (result && result.isSuccess){
+                // For DocuSign: PDFs were attached now.
+                // For Smartwaiver: attachment is handled asynchronously by webhook/Flow.
                 component.set('v.pdfAttached', true);
+                component.set('v.statusMessage', 'Document filing in progress.'); // friendly, provider-agnostic
                 helper.signContract(component, helper);
-            } else{
+            } else {
+                this.showSpinner(component, false);
                 component.set('v.errorMessage', result ? result.errorMessage : 'Unknown error');
                 component.set('v.docusignError', true);
             }
@@ -67,86 +88,64 @@
         $A.enqueueAction(action);
     },
 
-    // --------------------------
-    // Smartwaiver finalize polling
-    // --------------------------
-    pollSmartwaiverFinalize : function(component, helper){
+    // =========================================================
+    // Smartwaiver finalize (single-shot, no polling)
+    // =========================================================
+    /**
+     * Called once after Smartwaiver redirects back with waiverId (if present).
+     * - Persists waiverId onto the Contract if the field is blank.
+     * - Does NOT fetch/attach the PDF (webhook/Flow are the source of truth).
+     * - Marks the contract as signed.
+     */
+    finalizeSmartwaiverOnce : function(component, helper){
         var recordId = component.get('v.recordId');
-        var waiverId = component.get('v.waiverId');
+        var waiverId = component.get('v.waiverId'); // set by the redirect page/controller when available
 
+        // If no waiverId was provided, we can still mark signed;
+        // webhook/Flow will map the record via autoTag and attach the PDF.
         var action = component.get('c.smartwaiverFinalize');
         action.setParams({
             "contractAndFormId" : recordId,
             "waiverId"          : waiverId
         });
 
+        this.showSpinner(component, true);
         action.setCallback(this, function(response) {
             var result = response.getReturnValue();
-            if (!result) {
-                helper.handlePollFailure(component, helper, 'Unexpected error from server.');
-                return;
-            }
 
-            if (result.isSuccess){
-                component.set('v.pdfAttached', true);
-                component.set('v.statusMessage', 'Waiver finalized.');
-                helper.signContract(component, helper);
-                return;
-            }
-
-            var msg = (result.errorMessage || '').toLowerCase();
-
-            // Retry when Smartwaiver isn’t ready yet or it hiccuped (429/5xx)
-            var retryable =
-                msg.indexOf('not_ready') >= 0 ||
-                msg.indexOf('transient_retry') >= 0 ||
-                /waiver not found|internal server error|service unavailable|gateway|timeout|temporar|too many requests|rate limit/i.test(msg);
-
-            var retryCount = component.get('v.retryCount') || 0;
-            var maxRetries = component.get('v.maxRetries');
-            var infinite   = (maxRetries == null || maxRetries <= 0);
-
-            if (retryable && (infinite || retryCount < maxRetries)) {
-                retryCount += 1;
-                component.set('v.retryCount', retryCount);
-                component.set('v.statusMessage', 'Finalizing waiver… attempt ' + retryCount + '.');
-
-                var baseDelay  = component.get('v.retryDelay') || 2000;   // 2s
-                var delay      = Math.min(baseDelay + retryCount * 250, 8000); // linear backoff, capped 8s
-                var jitter     = Math.floor(Math.random() * 250);         // jitter to avoid thundering herd
-
-                window.setTimeout($A.getCallback(function () {
-                    helper.pollSmartwaiverFinalize(component, helper);
-                }), delay + jitter);
+            // We don’t retry/poll anymore. Just surface a friendly message and move on.
+            if (result && result.isSuccess) {
+                component.set('v.statusMessage', 'Waiver complete. Close this screen to complete your transaction.');
             } else {
-                helper.handlePollFailure(component, helper, result.errorMessage);
+                // Non-fatal: webhook/Flow will still attach when it completes
+                var msg = (result && result.errorMessage) ? result.errorMessage : 'Unable to record waiver id.';
+                component.set('v.statusMessage', 'We\'re finishing your filing in the background.');
+                component.set('v.errorMessage', msg);
+                // Do not set v.docusignError unless you want to block UX; leave it informational.
             }
+
+            // Mark the Contract as signed either way (the business decision you chose for async flow)
+            helper.signContract(component, helper);
         });
 
         $A.enqueueAction(action);
     },
 
-    handlePollFailure: function(component, helper, message) {
-        component.set('v.errorMessage', message || 'Waiver finalization failed.');
-        component.set('v.docusignError', true);
-        component.set('v.statusMessage', '');
-        helper.showSpinner(component, false);
-    },
-
-    // --------------------------
+    // =========================================================
     // Common
-    // --------------------------
+    // =========================================================
     signContract : function(component, helper){
         var recordId = component.get('v.recordId');
         var action = component.get('c.updateContractToSigned');
         action.setParams({ "contractAndFormId" : recordId });
+
         action.setCallback(this, function(response) {
+            this.showSpinner(component, false);
             var result = response.getReturnValue();
             if (!result || !result.isSuccess){
                 component.set('v.errorMessage', result ? result.errorMessage : 'Unknown error');
                 component.set('v.docusignError', true);
             }
-            helper.showSpinner(component, false);
         });
         $A.enqueueAction(action);
     },

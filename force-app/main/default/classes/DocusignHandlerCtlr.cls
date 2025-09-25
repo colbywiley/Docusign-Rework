@@ -77,14 +77,13 @@ public without sharing class DocusignHandlerCtlr {
             }
 
             // -------- Smartwaiver branch --------
-            if (cd.template == null || String.isBlank(cd.template.Third_Party_Template_Id__c)) {
-                throw new DocusignException('Smartwaiver Template GUID is blank - check permissions and template config.');
-            }
-            if (cd.currentContact == null || String.isBlank(cd.currentContact.Email)) {
-                throw new DocusignException('Signer email is required.');
-            }
+            String tmplGuid = resolveSmartwaiverTemplateId(cd.template);
+if (String.isBlank(tmplGuid)) {
+    throw new DocusignException('Smartwaiver Template GUID is blank - check template config.');
+}
 
-            String waiverUrl = buildSmartwaiverUrl(cd, (Id)contractAndFormId, false /*kiosk*/);
+String waiverUrl = buildSmartwaiverUrl(cd, tmplGuid, (Id)contractAndFormId, false /*kiosk*/);
+
             sendWaiverEmail(cd.currentContact, waiverUrl);
 
             upsert new TREX1__Contract_And_Form__c(
@@ -160,10 +159,12 @@ public without sharing class DocusignHandlerCtlr {
             }
 
             // -------- Smartwaiver branch --------
-            if (cd.template == null || String.isBlank(cd.template.Third_Party_Template_Id__c)) {
-                throw new DocusignException('Smartwaiver Template GUID is blank - check permissions and template config.');
-            }
-            String waiverUrl = buildSmartwaiverUrl(cd, (Id)contractAndFormId, false /*web*/);
+            String tmplGuid = resolveSmartwaiverTemplateId(cd.template);
+if (String.isBlank(tmplGuid)) {
+    throw new DocusignException('Smartwaiver Template GUID is blank - check template config.');
+}
+
+String waiverUrl = buildSmartwaiverUrl(cd, tmplGuid, (Id)contractAndFormId, false /*web*/);
 
             upsert new TREX1__Contract_And_Form__c(
                 Id = (Id)contractAndFormId,
@@ -324,10 +325,8 @@ public without sharing class DocusignHandlerCtlr {
                 return res;
             }
 
-            // IMPORTANT: Callout FIRST (no prior DML in this method)
-            fetchAndAttachWaiverPdf(c.Id, candidate);
 
-            // After successful fetch + attach, persist the waiver id if we learned it from the redirect
+            // Persist the waiver id (if we learned it from the redirect) so the Flow can map.
             if (String.isBlank(c.TREX1__Third_Party_Envelope_Id__c) && String.isNotBlank(waiverId)) {
                 update new TREX1__Contract_And_Form__c(
                     Id = c.Id,
@@ -335,8 +334,12 @@ public without sharing class DocusignHandlerCtlr {
                 );
             }
 
+
+
             res.isSuccess = true;
             return res;
+
+
 
         } catch (SmartwaiverRetryException sre) {
             res.isSuccess = false;
@@ -370,39 +373,41 @@ public without sharing class DocusignHandlerCtlr {
     // Helpers
     // --------------------------
 
-    private static String buildSmartwaiverUrl(ContractData cd, Id contractId, Boolean kioskMode){
-        String base = 'https://waiver.smartwaiver.com/w/' + cd.template.Third_Party_Template_Id__c + (kioskMode ? '/kiosk/' : '/web/') + '?';
-
-        Contact signer = cd.currentContact != null ? cd.currentContact : new Contact();
-        List<String> params = new List<String>();
-
-        if (!String.isBlank(signer.FirstName)) {
-            params.add('wautofill_firstname=' + EncodingUtil.urlEncode(signer.FirstName, 'UTF-8'));
-        }
-        if (!String.isBlank(signer.LastName)) {
-            params.add('wautofill_lastname=' + EncodingUtil.urlEncode(signer.LastName, 'UTF-8'));
-        }
-        if (signer.Birthdate != null) {
-            Date d = signer.Birthdate;
-            String yyyymmdd =
-                String.valueOf(d.year()) +
-                (d.month() < 10 ? '0' : '') + String.valueOf(d.month()) +
-                (d.day()   < 10 ? '0' : '') + String.valueOf(d.day());
-            params.add('wautofill_dobyyyymmdd=' + yyyymmdd);
-        }
-        // NEW: prefill email if available
-        if (!String.isBlank(signer.Email)) {
-            params.add('wautofill_email=' + EncodingUtil.urlEncode(signer.Email, 'UTF-8'));
-        }
-
-        // Use Salesforce Contract Id as auto tag so webhook/finalizer can map back
-        params.add('wautofill_tag=' + EncodingUtil.urlEncode((String)contractId, 'UTF-8'));
-
-        // Build the URL, then append a redirect back to our handler (works in both internal and Communities)
-        String url = base + String.join(params, '&');
-        url = withSmartwaiverRedirect(url, contractId);
-        return url;
+    private static String buildSmartwaiverUrl(ContractData cd, String templateGuid, Id contractId, Boolean kioskMode){
+    if (String.isBlank(templateGuid)) {
+        throw new DocusignException('Smartwaiver Template GUID is blank.');
     }
+
+    String base = 'https://waiver.smartwaiver.com/w/' + templateGuid + (kioskMode ? '/kiosk/' : '/web/') + '?';
+
+    Contact signer = cd.currentContact != null ? cd.currentContact : new Contact();
+    List<String> params = new List<String>();
+
+    if (!String.isBlank(signer.FirstName)) {
+        params.add('wautofill_firstname=' + EncodingUtil.urlEncode(signer.FirstName, 'UTF-8'));
+    }
+    if (!String.isBlank(signer.LastName)) {
+        params.add('wautofill_lastname=' + EncodingUtil.urlEncode(signer.LastName, 'UTF-8'));
+    }
+    if (signer.Birthdate != null) {
+        Date d = signer.Birthdate;
+        String yyyymmdd =
+            String.valueOf(d.year()) +
+            (d.month() < 10 ? '0' : '') + String.valueOf(d.month()) +
+            (d.day()   < 10 ? '0' : '') + String.valueOf(d.day());
+        params.add('wautofill_dobyyyymmdd=' + yyyymmdd);
+    }
+    // Optional but works for you: email prefill
+    if (!String.isBlank(signer.Email)) {
+        params.add('wautofill_email=' + EncodingUtil.urlEncode(signer.Email, 'UTF-8'));
+    }
+
+    // Use Salesforce record Id so your webhook/flows can map back
+    params.add('auto_tag=' + EncodingUtil.urlEncode((String)contractId, 'UTF-8'));
+
+    return base + String.join(params, '&');
+    }
+
 
     private static void sendWaiverEmail(Contact toContact, String waiverUrl){
         Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
@@ -438,11 +443,12 @@ public without sharing class DocusignHandlerCtlr {
         if (currentContract != null && String.isNotBlank(currentContract.TREX1__Template_Id__c)) {
             // Need template provider + third party template id
             if (!TREX1__Contract_Or_Form_Template__c.Waiver_Provider__c.getDescribe().isAccessible()
-                || !TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id__c.getDescribe().isAccessible()) {
-                throw new DocusignException('Cannot read template fields (Waiver_Provider__c / Third_Party_Template_Id__c). Check field-level security.');
+            || !TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id__c.getDescribe().isAccessible()
+            || !TREX1__Contract_Or_Form_Template__c.Third_Party_Template_Id_Online__c.getDescribe().isAccessible()) {
+                throw new DocusignException('Cannot read template fields (Waiver_Provider__c / Third_Party_Template_Id__c / Third_Party_Template_Id_Online__c). Check field-level security.');
             }
             List<TREX1__Contract_Or_Form_Template__c> templates = [
-                SELECT Id, Waiver_Provider__c, Third_Party_Template_Id__c
+                SELECT Id, Waiver_Provider__c, Third_Party_Template_Id__c, Third_Party_Template_Id_Online__c
                 FROM TREX1__Contract_Or_Form_Template__c
                 WHERE Id = :currentContract.TREX1__Template_Id__c
             ];
@@ -515,7 +521,22 @@ public without sharing class DocusignHandlerCtlr {
             if (waiver == null || waiver.get('pdf') == null) {
                 throw new DocusignException('Smartwaiver response missing PDF.');
             }
-            Blob pdfBlob = EncodingUtil.base64Decode((String)waiver.get('pdf'));
+
+            String pdfB64 = (String)waiver.get('pdf');
+            if (String.isBlank(pdfB64)) {
+                // PDF key present but blank: treat as "not ready"
+                throw new SmartwaiverRetryException('NOT_READY: Smartwaiver returned an empty PDF payload.');
+            }
+
+            Blob pdfBlob;
+            try {
+                pdfBlob = EncodingUtil.base64Decode(pdfB64);
+            } catch (Exception decodeEx) {
+                throw new DocusignException('Smartwaiver returned an invalid PDF payload (base64 decode failed).');
+            }
+            if (pdfBlob == null || pdfBlob.size() == 0) {
+                throw new SmartwaiverRetryException('NOT_READY: Smartwaiver PDF is zero bytes. Try again shortly.');
+            }
 
             ContentVersion cv = new ContentVersion();
             cv.Title = 'Completed Smartwaiver Waiver';
@@ -529,6 +550,7 @@ public without sharing class DocusignHandlerCtlr {
                 Signed_Contract_Retrieved__c = true
             );
             return;
+
         }
 
         String statusLine = resp.getStatus();
@@ -547,37 +569,20 @@ public without sharing class DocusignHandlerCtlr {
         throw new DocusignException('Smartwaiver PDF fetch failed: ' + statusLine + ' - ' + body);
     }
 
-    /** Returns https://<current-host>[/sfsites]/c/DocusignHandler.app?... */
-    private static String buildFinishUrl(Id contractId) {
-        Url req = URL.getCurrentRequestUrl();                   // current request host (org or community)
-        String base = req.getProtocol() + '://' + req.getHost();
-        // Robust community detection
-        Boolean isCommunity = (Network.getNetworkId() != null);
-        String lightningPrefix = (isCommunity ? '/sfsites' : '') + '/c';
-
-        String qs = 'flowType=Finish'
-                  + '&event=signing_complete'
-                  + '&recordId=' + EncodingUtil.urlEncode(String.valueOf(contractId), 'UTF-8');
-
-        return base + lightningPrefix + '/DocusignHandler.app?' + qs;
+    private static Boolean isCommunityRequest() {
+    // Works for Experience Cloud requests
+    try { return Network.getNetworkId() != null; } catch (Exception e) { return false; }
     }
 
-    /** Adds/overwrites Smartwaiver redirect parameter */
-    private static String withSmartwaiverRedirect(String smartwaiverUrl, Id contractId) {
-        String finishUrl = buildFinishUrl(contractId);
-        String enc = EncodingUtil.urlEncode(finishUrl, 'UTF-8');
-        // Remove any existing redirect= to avoid duplicates
-        if (smartwaiverUrl.contains('redirect=')) {
-            // crude but safe enough for this case
-            smartwaiverUrl = smartwaiverUrl.replaceAll('([?&])redirect=[^&]*', '$1');
-            // strip trailing & or ? if we ended up with them
-            if (smartwaiverUrl.endsWith('&') || smartwaiverUrl.endsWith('?')) {
-                smartwaiverUrl = smartwaiverUrl.substring(0, smartwaiverUrl.length()-1);
-            }
-        }
-        String glue = smartwaiverUrl.contains('?') ? '&' : '?';
-        return smartwaiverUrl + glue + 'redirect=' + enc;
+private static String resolveSmartwaiverTemplateId(TREX1__Contract_Or_Form_Template__c t) {
+    if (t == null) return null;
+    // In Community, prefer the “Online” GUID when present; otherwise fall back
+    if (isCommunityRequest() && String.isNotBlank(t.Third_Party_Template_Id_Online__c)) {
+        return t.Third_Party_Template_Id_Online__c;
     }
+    return t.Third_Party_Template_Id__c;
+    }
+
 
     // --------------------------
     // Inner classes (unchanged shapes)
